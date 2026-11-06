@@ -1,0 +1,158 @@
+"""Execute no computador: python -m streamlit run dashboard.py"""
+import json
+from datetime import datetime, timedelta, timezone
+
+import pandas as pd
+import streamlit as st
+
+import config as C
+from firmeware.edge import classify, interval
+from telemetry import MQTTReceiver, TelemetryBuffer
+
+st.set_page_config(
+    page_title='SabiáEncostas | Central operacional',
+    page_icon='⛰️',
+    layout='wide',
+)
+
+
+@st.cache_resource
+def receiver():
+    return MQTTReceiver(C)
+
+
+st.title('⛰️ SabiáEncostas')
+st.caption('CENTRAL OPERACIONAL · Monitoramento de encostas · Prova de conceito')
+
+with st.sidebar:
+    st.header('Operação')
+    mode = st.radio('Fonte dos dados', ['Demonstração', 'MQTT ao vivo'])
+    st.caption('O modo demonstrativo não publica mensagens no broker.')
+    st.divider()
+    st.write('**Dispositivo:** ' + C.DEVICE_ID)
+    st.caption('Limiares didáticos da PoC; não são critérios geotécnicos validados.')
+    if mode == 'Demonstração':
+        water = st.slider('Umidade do solo (%)', 0, 100, 30)
+        tilt = st.slider('Inclinação (°)', 0.0, 20.0, 0.0, 0.5)
+        rain = st.slider('Chuva nos últimos 60 s (mm)', 0.0, 10.0, 0.0, 0.2)
+        fault = st.checkbox('Simular falha do sensor')
+    else:
+        st.caption('Broker: ' + C.BROKER)
+        st.caption('Conexão TLS · porta ' + str(C.PORT))
+        st.caption('O painel recebe mensagens futuras. Abra-o antes de provocar uma mudança no Wokwi.')
+
+if mode == 'Demonstração':
+    st.warning('MODO DEMONSTRATIVO — dados simulados pelos controles laterais.')
+    if 'demo_buffer' not in st.session_state:
+        st.session_state.demo_buffer = TelemetryBuffer()
+        st.session_state.demo_seq = 0
+    source = st.session_state.demo_buffer
+    source.set_status('Simulação local')
+else:
+    try:
+        source = receiver()
+    except Exception:
+        st.error('Não foi possível iniciar o consumidor MQTT. Confira as credenciais, o certificado CA e as dependências locais.')
+        st.stop()
+
+
+def metric(value, unit):
+    return 'Indisponível' if value is None else f'{value:.1f} {unit}'
+
+
+@st.fragment(run_every='2s')
+def render_panel():
+    if mode == 'Demonstração':
+        st.session_state.demo_seq += 1
+        state = classify(water, tilt, rain, fault)
+        previous = source.snapshot()['latest']
+        data = dict(
+            schema=1,
+            device_id=C.DEVICE_ID,
+            boot_id='demonstracao',
+            seq=st.session_state.demo_seq,
+            ts_utc=None,
+            umidade_pct=water,
+            inclinacao_deg=None if fault else tilt,
+            chuva_60s_mm=rain,
+            chuva_total_boot_mm=rain,
+            estado=state,
+            erro_sensor='Falha simulada' if fault else None,
+            intervalo_envio_ms=interval(state),
+        )
+        changed = previous is None or previous['estado'] != state
+        if changed:
+            data['event_id'] = f'demo-{data["seq"]}'
+            data['estado_anterior'] = previous['estado'] if previous else None
+        source.ingest(json.dumps(data), C.DEVICE_ID, alert=changed)
+
+    snapshot = source.snapshot()
+    st.caption('CONEXÃO · ' + snapshot['status'])
+    latest = snapshot['latest']
+    if latest is None:
+        st.info('Aguardando a primeira mensagem do ESP32. Inicie o Wokwi e altere a umidade para provocar uma mudança de estado.')
+        if snapshot['invalid']:
+            st.warning(f'Mensagens inválidas ignoradas: {snapshot["invalid"]}')
+        return
+
+    age = snapshot['age']
+    stale = age > max(15, latest['intervalo_envio_ms'] / 1000 * 2 + 5)
+    if stale:
+        st.warning('SEM DADOS RECENTES — os valores abaixo são a última leitura recebida. Confira o Wokwi e a conexão.')
+
+    state = latest['estado']
+    messages = {
+        'NORMAL': ('success', 'NORMAL · Valores abaixo dos limiares demonstrativos.'),
+        'ATENCAO': ('warning', 'ATENÇÃO · Uma ou mais medidas atingiram o nível de atenção.'),
+        'ALERTA': ('error', 'ALERTA · Limite crítico demonstrativo atingido.'),
+        'FALHA_SENSOR': ('error', 'FALHA DE SENSOR · A leitura de inclinação está indisponível.'),
+    }
+    method, message = messages[state]
+    getattr(st, method)(message)
+    columns = st.columns(4)
+    columns[0].metric('Umidade do solo', metric(latest['umidade_pct'], '%'))
+    columns[1].metric('Inclinação', metric(latest['inclinacao_deg'], '°'))
+    columns[2].metric('Chuva · janela de 60 s', metric(latest['chuva_60s_mm'], 'mm'))
+    columns[3].metric('Intervalo de envio', f'{latest["intervalo_envio_ms"] / 1000:g} s')
+    received = datetime.fromisoformat(latest['recebido_em']).astimezone(timezone(timedelta(hours=-3))).strftime('%d/%m/%Y %H:%M:%S')
+    st.caption(f'Última leitura recebida: {received} (Fortaleza) · há {age:.0f} s · sequência {latest["seq"]}')
+    if latest.get('ts_utc') is None:
+        st.caption('Relógio do dispositivo não sincronizado; gráficos usam o horário de recebimento.')
+    if latest.get('erro_sensor'):
+        st.warning('Sensor: ' + str(latest['erro_sensor']))
+
+    frame = pd.DataFrame(snapshot['history'])
+    frame['recebido_em'] = pd.to_datetime(frame['recebido_em'], utc=True)
+    history_tab, alerts_tab, details_tab = st.tabs(['Histórico', 'Eventos de alerta', 'Última mensagem'])
+    with history_tab:
+        st.caption('Até 1.000 leituras em memória. A janela móvel de chuva não deve ser somada entre mensagens.')
+        plot = frame.set_index('recebido_em')
+        a, b, c = st.columns(3)
+        for column, key, label in (
+            (a, 'umidade_pct', 'Umidade (%)'),
+            (b, 'inclinacao_deg', 'Inclinação (°)'),
+            (c, 'chuva_60s_mm', 'Chuva em 60 s (mm)'),
+        ):
+            with column:
+                st.write('**' + label + '**')
+                st.line_chart(plot[[key]], height=210)
+        st.download_button(
+            'Baixar leituras em CSV',
+            frame.to_csv(index=False).encode('utf-8-sig'),
+            'sabiaencostas-leituras.csv',
+            'text/csv',
+        )
+    with alerts_tab:
+        if snapshot['events']:
+            events = pd.DataFrame(reversed(snapshot['events']))
+            st.dataframe(events.reindex(columns=['recebido_em', 'estado_anterior', 'estado', 'event_id']), hide_index=True)
+        else:
+            st.info('Nenhum evento recebido nesta execução.')
+    with details_tab:
+        st.json(latest)
+        st.caption(f'Mensagens inválidas ignoradas: {snapshot["invalid"]}')
+
+
+render_panel()
+st.divider()
+st.caption('Histórico temporário: reiniciar o servidor apaga as leituras. Este painel não envia notificações externas.')

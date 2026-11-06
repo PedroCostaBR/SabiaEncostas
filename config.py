@@ -1,0 +1,54 @@
+# Projeto: SabiáEncostas
+OFFLINE = False
+DEVICE_ID = 'encosta-01'
+
+# EMQX Cloud Serverless: MQTT TCP com TLS (ou mude para 'broker.hivemq.com' e PORT = 1883)
+BROKER = 'wf021111.ala.us-east-1.emqxsl.com'
+PORT = 8883
+
+# Credenciais MQTT do broker
+USER = 'esp32-encosta01'
+PASSWORD = 'sabiaencosta@.'
+
+# Certificado CA incorporado (DigiCert Global Root G2)
+CA_PEM = '''-----BEGIN CERTIFICATE-----
+MIIDjjCCAnagAwIBAgIQAzrx5qcRqaC7KGSxHQn65TANBgkqhkiG9w0BAQsFADBh
+MQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3
+d3cuZGlnaWNlcnQuY29tMSAwHgYDVQQDExdEaWdpQ2VydCBHbG9iYWwgUm9vdCBH
+MjAeFw0xMzA4MDExMjAwMDBaFw0zODAxMTUxMjAwMDBaMGExCzAJBgNVBAYTAlVT
+MRUwEwYDVQQKEwxEaWdpQ2VydCBJbmMxGTAXBgNVBAsTEHd3dy5kaWdpY2VydC5j
+b20xIDAeBgNVBAMTF0RpZ2lDZXJ0IEdsb2JhbCBSb290IEcyMIIBIjANBgkqhkiG
+9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuzfNNNx7a8myaJCtSnX/RrohCgiN9RlUyfuI
+2/Ou8jqJkTx65qsGGmvPrC3oXgkkRLpimn7Wo6h+4FR1IAWsULecYxpsMNzaHxmx
+1x7e/dfgy5SDN67sH0NO3Xss0r0upS/kqbitOtSZpLYl6ZtrAGCSYP9PIUkY92eQ
+q2EGnI/yuum06ZIya7XzV+hdG82MHauVBJVJ8zUtluNJbd134/tJS7SsVQepj5Wz
+tCO7TG1F8PapspUwtP1MVYwnSlcUfIKdzXOS0xZKBgyMUNGPHgm+F6HmIcr9g+UQ
+vIOlCsRnKPZzFBQ9RnbDhxSJITRNrw9FDKZJobq7nMWxM4MphQIDAQABo0IwQDAP
+BgNVHRMBAf8EBTADAQH/MA4GA1UdDwEB/wQEAwIBhjAdBgNVHQ4EFgQUTiJUIBiV
+5uNu5g/6+rkS7QYXjzkwDQYJKoZIhvcNAQELBQADggEBAGBnKJRvDkhj6zHd6mcY
+1Yl9PMWLSn/pvtsrF9+wX3N3KjITOYFnQoQj8kVnNeyIv/iPsGEMNKSuIEyExtv4
+NeF22d+mQrvHRAiGfzZ0JFrabA0UWTW98kndth/Jsw1HKj2ZL7tcu7XUIOGZX1NG
+Fdtom/DzMNU+MeKNhJ7jitralj41E6Vf8PlwUHBHQRFXGU7Aj64GxJUTFy8bJZ91
+8rGOmaFvE7FBcf6IKshPECBV1/MUReXgRPTqh5Uykw7+U0b6LJ3/iyK5S9kJRaTe
+pLiaWN0bfVKfjllDiIGknibVb63dDcY3fe0Dkhvld1927jyNxF1WW6LZZm6zNTfl
+MrY=
+-----END CERTIFICATE-----'''
+PREFIX = 'sabiaencostas/laboratorio/encosta-01'
+
+# Intervalos de envio da Amostragem Dinâmica (ms)
+NORMAL_MS = 900000     # 15 minutos
+ATTENTION_MS = 10000   # 10 segundos
+ALERT_MS = 2000        # 2 segundos
+SCAN_MS = 2000         # Leitura local a cada 2 segundos
+
+MM_PER_TIP = 0.2
+ADC_DRY = 0
+ADC_WET = 4095
+
+# Limiares didáticos da PoC
+MOISTURE_WARN = 60
+MOISTURE_ALERT = 80
+TILT_WARN = 5
+TILT_ALERT = 10
+RAIN_WARN = 2
+RAIN_ALERT = 5
